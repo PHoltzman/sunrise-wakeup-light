@@ -17,8 +17,9 @@ from werkzeug.exceptions import BadRequest
 from crontab import CronTab
 import rpi_ws281x as rpi
 
+########################### CONFIGURATION ###############################
 NUM_PIXELS = 69
-
+TIMER_FILE_NAME = 'timers.json'
 
 ########################### MODULE SETUP ###############################
 # Setup logging handlers
@@ -33,6 +34,7 @@ ch2.setLevel(logging.DEBUG)
 ch2.setFormatter(formatter)
 
 CONTENT_TYPE_LIST = ['application/json', 'application/json;charset=utf-8', 'application/json; charset=utf-8', 'application/json;charset=UTF-8', 'application/json; charset=UTF-8']
+
 
 ########################### Application Setup ###############################
 # Create the application and api
@@ -62,7 +64,8 @@ def signal_handler(signal, frame):
 		
 signal.signal(signal.SIGINT, signal_handler)
 
-#################### FUNCTIONAL ENDPOINTS #########################
+
+#################### TIME ENDPOINTS #########################
 @api.resource('/time')
 class TimeAPI(Resource):
 	'''API for managing time.'''
@@ -90,11 +93,10 @@ class TimeAPI(Resource):
 		}
 		
 
+#################### TIMER ENDPOINTS #########################
 @api.resource('/timers')
 class TimersAPI(Resource):
 	'''API for managing timers.'''
-	
-	timer_file = 'timers.json'
 	
 	def get(self):
 		'''
@@ -172,10 +174,16 @@ class TimersAPI(Resource):
 		except Exception:
 			app.logger.error("Error handling request", exc_info=True)
 			return { "error": "Error handling request." }, 500
-			
+	
 	@staticmethod
 	def read_timers_from_file():
-		with open(TimersAPI.timer_file, 'r') as f:
+		'''
+		Read timers from the timer file into a dictionary
+		
+		Returns:
+			timer_dict (dict) - dictionary of timers
+		'''
+		with open(TIMER_FILE_NAME, 'r') as f:
 			timer_dict = json.loads(f.read())
 			
 		for timer_id in timer_dict.iterkeys():
@@ -186,15 +194,33 @@ class TimersAPI(Resource):
 	
 	@staticmethod
 	def write_timers_to_file(timer_dict):
+		'''
+		Write all timers to the timer file.
+		
+		Arguments:
+			timer_dict (dict) - dictionary of timers
+		'''
 		for timer_id in timer_dict.iterkeys():
 			timer_dict[timer_id] = timer_dict[timer_id].to_storage_json()
 				
-		with open(TimersAPI.timer_file, 'w') as f:
+		with open(TIMER_FILE_NAME, 'w') as f:
 			f.write(json.dumps(timer_dict, indent=4))
 
 
 	@staticmethod
 	def get_timer_by_id(timer_id):
+		'''
+		Get a specific timer from the timer file based on timer_id.
+		
+		Arguments:
+			timer_id (string) - id of the desired timer
+			
+		Raises:
+			TimerNotFound
+			
+		Returns:
+			Timer object for the desired timer
+		'''
 		timer_dict = TimersAPI.read_timers_from_file()
 		
 		try:
@@ -209,6 +235,7 @@ class TimersAPI(Resource):
 class TimerAPI(Resource):
 
 	def get(self, timer_id):
+		'''Get a specific timer'''
 		app.logger.info('Handling GET request on /timers/{} endpoint'.format(timer_id))
 		
 		try:
@@ -224,6 +251,7 @@ class TimerAPI(Resource):
 
 				
 	def put(self, timer_id):
+		'''Modify a timer'''
 		try:
 			app.logger.info('Handling PUT request on /timers/{} endpoint'.format(timer_id))
 			
@@ -276,6 +304,7 @@ class TimerAPI(Resource):
 	
 	
 	def delete(self, timer_id):
+		'''Delete a timer'''
 		app.logger.info('Handling DELETE request on /timers/{} endpoint'.format(timer_id))
 		
 		try:
@@ -298,8 +327,23 @@ class TimerAPI(Resource):
 
 
 class Timer(object):
+	'''Object defining a timer'''
 
 	def __init__(self, trigger_hour, trigger_minute, timer_schedule, program_to_launch, arguments=None, timer_id=None):
+		'''
+		Initialize a timer object.
+		
+		Arguments:
+			trigger_hour (integer) - hour of the day for the timer
+			trigger_minute (integer) - minute of the hour for the timer
+			timer_schedule (list) - list of days of the week for the timer
+			program_to_launch (string) - name of the program to launch when the timer fires
+			(opt) arguments (dict) - dictionary of URL parameter arguments to pass when calling the program_to_launch
+			(opt) timer_id (string) - ID of the timer if it is already known
+			
+		Raises:
+			InvalidTimerException
+		'''
 		
 		if timer_id is None:
 			self.timer_id = str(uuid4())
@@ -332,6 +376,18 @@ class Timer(object):
 
 
 	def ingest_timer_schedule(self, timer_schedule):
+		'''
+		Validate and process a provided timer schedule.
+		
+		Arguments:
+			timer_schedule (list) - list of days of the week for the timer
+			
+		Raises:
+			InvalidTimerException
+		
+		Returns:
+			(list) - processed timer schedule with numeric days of week
+		'''
 		valid_entries = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
 		
 		for item in timer_schedule:
@@ -347,6 +403,7 @@ class Timer(object):
 	
 	@staticmethod
 	def dow_to_num(dow):
+		'''Convert three-letter day of week to number'''
 		d = dow.lower()
 		if d == 'mon':
 			return 1
@@ -365,6 +422,7 @@ class Timer(object):
 	
 	@staticmethod
 	def num_to_dow(num):
+		'''Convert numeric day of week to three-letter format'''
 		if num == 1:
 			return 'mon'
 		elif num == 2:
@@ -382,6 +440,15 @@ class Timer(object):
 		
 	@classmethod
 	def from_json(cls, json_dict):
+		'''
+		Instantiate timer object from the json representation.
+		
+		Arguments:
+			json_dict (dict) - dictionary representation of the timer
+			
+		Returns:
+			(Timer) - timer object from the provided data
+		'''
 		timer_id = None
 		if 'timerId' in json_dict:
 			timer_id = json_dict['timerId']
@@ -399,6 +466,12 @@ class Timer(object):
 		return time_obj
 	
 	def to_storage_json(self):
+		'''
+		Output the json storage format of the timer (schedule in numeric day of week)
+		
+		Returns:
+			(dict) - dict for storage as json
+		'''		
 		resp = {
 			'timerId': self.timer_id,
 			'triggerHour': self.trigger_hour,
@@ -411,12 +484,21 @@ class Timer(object):
 		return resp
 	
 	def to_json(self):
+		'''
+		Output the client-facing json format of the timer (schedule in three-letter day of week)
+		
+		Returns:
+			(dict) - dict for showing to client
+		'''
 		resp = self.to_storage_json()
 		resp['timerSchedule'] = [self.num_to_dow(x) for x in self.timer_schedule]
 		
 		return resp
 		
 	def save_to_cron(self):
+		'''
+		Save the timer to the crontab
+		'''
 		# first see if this is new or update
 		found_cron = False
 		for job in cron:
@@ -433,6 +515,12 @@ class Timer(object):
 		cron.write()
 	
 	def set_cron_record(self, job):
+		'''
+		Set the parameters of the crontab entry
+		
+		Arguments:
+			job - the new or existing cron job to populate
+		'''
 		app.logger.info(self.to_storage_json())
 		arg_string = ''
 		if self.arguments is not None:
@@ -448,14 +536,16 @@ class Timer(object):
 		job.dow.on(*self.timer_schedule)
 	
 	def delete_from_cron(self):
+		'''Delete the timer from the crontab'''
 		cron.remove_all(comment=self.timer_id)
 		cron.write()
-		
 
+
+#################### PROGRAM ENDPOINTS #########################
 @api.resource('/stop-program')
 class StopProgramController(Resource):
-	# stop currently executing program
 	def get(self):
+		'''Stop the currently executing program if one exists'''
 		try:
 			global PROGRAM_PROCESS
 			app.logger.info('Handling GET request on /stop-program endpoint')
@@ -478,10 +568,9 @@ class StopProgramController(Resource):
 			return { "error": "Error handling request." }, 500
 
 @api.resource('/programs')
-class ProgramsAPI(Resource):
-	'''Get current program'''
-	
+class ProgramsAPI(Resource):	
 	def get(self):
+		'''Get currently executing program'''
 		try:
 			app.logger.info('Handling GET request on /programs endpoint')
 			try:
@@ -499,8 +588,8 @@ class ProgramsAPI(Resource):
 class ProgramAPI(Resource):
 	valid_programs = ["wakeup", "wakeup_demo", "single_color", "full_wash", "blackout"]
 	
-	# run a program
 	def get(self, program):
+		'''Run a program'''
 		try:
 			app.logger.info('Handling GET request on /programs/{} endpoint'.format(program))
 			if program not in ProgramAPI.valid_programs:
@@ -519,6 +608,7 @@ class ProgramAPI(Resource):
 					PROGRAM_PROCESS = None
 			except AttributeError:
 				pass
+			
 			
 			if program == 'single_color':
 				if 'red' in query_dict:
@@ -584,7 +674,9 @@ class ProgramAPI(Resource):
 			app.logger.error("Error handling request", exc_info=True)
 			return { "error": "Error handling request." }, 500
 
+			
 class ColorObject(object):
+	'''Object for defining RGB color'''
 	def __init__(self, r, g, b):
 		self.r = r
 		self.g = g
@@ -592,6 +684,12 @@ class ColorObject(object):
 
 class BaseProgram(multiprocessing.Process):
 	def __init__(self, quit_event):
+		'''
+		Initialize a program
+		
+		Arguments:
+			quit_event (multiprocessing.Event) - event for this subprocess being notified that it should cleanup and exit
+		'''
 		super(BaseProgram, self).__init__()
 		self.daemon = True
 		
@@ -600,6 +698,7 @@ class BaseProgram(multiprocessing.Process):
 		self.strip.begin()
 	
 	def exit_gracefully(self):
+		'''Exit the currently running program gracefully and cleanup this subprocess'''
 		app.logger.info('Stopping current program during process shutdown')
 		self.quit_event.clear()
 		self.blackout()
@@ -607,12 +706,19 @@ class BaseProgram(multiprocessing.Process):
 		self.current_program = None
 	
 	def blackout(self):
+		'''Run a blackout program to ensure the pixels are off'''
 		data = [ColorObject(0,0,0) for i in range(NUM_PIXELS)]
 		for i in range(0,5):
 			self.send_data(data)
 			sleep(.05)
 			
 	def send_data(self, data):
+		'''
+		Send a data packet to the pixels.
+		
+		Arguments:
+			data (list[ColorObject]) - list of color objects to be transmitted to pixels
+		'''
 		for i in range(0,len(data)):
 			# note the ordering of RBG in the mapping. Not sure how to make the library do tha that for me in the PixelStrip function
 			self.strip.setPixelColorRGB(i,data[i].r, data[i].b, data[i].g)
@@ -621,18 +727,35 @@ class BaseProgram(multiprocessing.Process):
 
 		
 class BlackoutProgram(BaseProgram):
+	'''Blackout program to turn off the pixels'''
 	def __init__(self, quit_event):
+		'''
+		Initialize the program
+		
+		Arguments:
+			quit_event - see parent
+		'''
 		super(BlackoutProgram, self).__init__(quit_event)
 		self.current_program = 'blackout'
 		
 	def run(self):
+		'''Run the program'''
 		app.logger.info('Starting BlackoutProgram')
 		self.exit_gracefully()
 		
 		
 class SingleColorProgram(BaseProgram):
-	
+	'''Program to turn the entire strip to a specific RGB color'''
 	def __init__(self, quit_event, red=0, green=0, blue=0):
+		'''
+		Initialize the program
+		
+		Arguments:
+			quit_event - see parent
+			red (int) - red value
+			green (int) - green value
+			blue (int) - blue value
+		'''
 		super(SingleColorProgram, self).__init__(quit_event)
 		self.red = red
 		self.green = green
@@ -641,6 +764,7 @@ class SingleColorProgram(BaseProgram):
 		
 		
 	def run(self):
+		'''Run the program'''
 		app.logger.info('Starting SingleColorProgram with rgb = {}, {}, {}'.format(str(self.red), str(self.green), str(self.blue)))
 		r = self.red
 		g = self.green
@@ -655,7 +779,7 @@ class SingleColorProgram(BaseProgram):
 		
 
 class FullWashProgram(BaseProgram):
-	
+	'''Program that shifts randomly between a list of colors. TODO IN PROGRESS'''	
 	# r, g, b
 	program_options = [
 		(255,0,255),	# pink
@@ -670,11 +794,18 @@ class FullWashProgram(BaseProgram):
 	]
 	
 	def __init__(self, quit_event):
+		'''
+		Initialize the program
+		
+		Arguments:
+			quit_event - see parent
+		'''
 		super(FullWashProgram, self).__init__(quit_event)
 		self.transition_cycles = 10
 		self.current_program = 'full_wash'
 		
 	def run(self):
+		'''Run the program'''
 		app.logger.info('Starting FullWashProgram')
 		while not self.quit_event.is_set():
 			self.send_data(data)
@@ -683,6 +814,7 @@ class FullWashProgram(BaseProgram):
 				
 		
 class WakeupProgram(BaseProgram):
+	'''Program that simulates a sunrise sequence increasing in color, brightness, and pixel count throughout.'''
 	
 	# r, g, b, led pct, transition time ratio from this to next,
 	program_sequence = [
@@ -699,6 +831,13 @@ class WakeupProgram(BaseProgram):
 	]
 
 	def __init__(self, quit_event, multiplier=30):
+		'''
+		Initialize the program
+		
+		Arguments:
+			quit_event - see parent
+			multipler (int) - multiplier for lengthening the program. This value roughly sets the duration of the "rising" portion of the program to 1 minute * the multiplier.
+		'''
 		super(WakeupProgram, self).__init__(quit_event)
 		self.base_multiplier = 60
 		self.multiplier = multiplier
@@ -708,6 +847,20 @@ class WakeupProgram(BaseProgram):
 			self.current_program = 'wakeup'
 	
 	def _calc_deltas(self, from_state, to_state):
+		'''
+		Calculate deltas between one state and another
+		
+		Arguments:
+			from_state (list) - starting state
+			to_state (list) - ending state
+			
+		Returns:
+			tuple
+				red_delta (float) - delta in red
+				green_delta (float) - delta in green
+				blue_delta (float) - delta in blue
+				pixel_delta (float) - delta in pixel count
+		'''
 		red_delta = self._calc_delta(to_state[0], from_state[0])
 		green_delta = self._calc_delta(to_state[1], from_state[1])
 		blue_delta = self._calc_delta(to_state[2], from_state[2])
@@ -716,13 +869,35 @@ class WakeupProgram(BaseProgram):
 		return red_delta, green_delta, blue_delta, pixel_delta
 		
 	def _calc_delta(self, to_item, from_item):
+		'''
+		Calculate delta between two items
+		
+		Arguments:
+			to_item (int/float) - end item
+			from_item (int/float) - starting item
+			
+		Returns:
+			(float) - delta between the items
+		'''
 		return float(to_item - from_item)
 		
 	def _calc_delta_influence(self, delta, iter_count, j):
+		'''
+		Determine the influence of the delta for a given iteration.
+		
+		Arguments:
+			delta (float) - the delta to check
+			iter_count (int) - total number of iterations
+			j (int) - current value of the iteration
+			
+		Returns:
+			(int) - the portion of the delta to apply on this iteration
+		'''
 		return int(round(float(delta) * (float(j) / float(iter_count))))
 		
 		
 	def run(self):
+		'''Run the program'''
 		app.logger.info('Starting WakeupProgram with multiplier={}'.format(str(self.multiplier)))
 		data = [ColorObject(0,0,0) for x in range(0,NUM_PIXELS)]
 		for i in range(1, len(WakeupProgram.program_sequence)):
@@ -805,6 +980,8 @@ class TimerNotFound(Exception):
 class InvalidTimerException(Exception):
 	pass
 
+	
+######################## MISC FUNCTIONS ###########################	
 def datetime_to_string(d_time):
 	"""
 	Convert datetime object to ISO8601 compliant string representation.
@@ -820,6 +997,8 @@ def datetime_to_string(d_time):
 	s_time = datetime.strftime(d_time, output_datetime_format)
 	
 	return s_time	
-		
+	
+	
+########################## INVOCATION #############################	
 if __name__ == "__main__":
 	app.run(host='0.0.0.0', port=8081)

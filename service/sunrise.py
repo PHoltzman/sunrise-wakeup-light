@@ -1,10 +1,8 @@
 import sys
 import logging
 import logging.handlers
-
 import json
 from datetime import datetime
-from uuid import uuid4
 import multiprocessing
 import signal
 from time import sleep
@@ -14,8 +12,9 @@ from dateutil import parser
 from flask import Flask, request
 from flask_restful import Api, Resource, reqparse, inputs
 from werkzeug.exceptions import BadRequest
-from crontab import CronTab
-import rpi_ws281x as rpi
+
+from timer import Timer
+from programs import BaseProgram
 
 ########################### CONFIGURATION ###############################
 NUM_PIXELS = 69
@@ -46,19 +45,23 @@ app.logger.addHandler(ch2)
 app.logger.info('Starting application')
 api = Api(app, catch_all_404s=True)
 
-cron = CronTab(user='pi')
-PROGRAM_PROCESS = None
-QUIT = multiprocessing.Event()
+STOP = multiprocessing.Event()
+
+# Create program subprocess and start it running blackout program
+PROGRAM_PROCESS = BaseProgram(app.logger, STOP, NUM_PIXELS)
+PROGRAM_PROCESS.start()
+PROGRAM_PROCESS.blackout()
 
 	
 def signal_handler(signal, frame):
 	app.logger.info('SIGINT received. Cleaning up children processes and exiting...')
-	QUIT.set()
+	STOP.set()
 	sleep(2)
-	# try:
-		# PROGRAM_PROCESS.join(5)
-	# except AttributeError:
-		# pass
+	PROGRAM_PROCESS.exit_gracefully()
+	try:
+		PROGRAM_PROCESS.join(5)
+	except AttributeError:
+		pass
 	
 	sys.exit(0)
 		
@@ -326,233 +329,19 @@ class TimerAPI(Resource):
 			return { "error": "Error handling request." }, 500
 
 
-class Timer(object):
-	'''Object defining a timer'''
-
-	def __init__(self, trigger_hour, trigger_minute, timer_schedule, program_to_launch, arguments=None, timer_id=None):
-		'''
-		Initialize a timer object.
-		
-		Arguments:
-			trigger_hour (integer) - hour of the day for the timer
-			trigger_minute (integer) - minute of the hour for the timer
-			timer_schedule (list) - list of days of the week for the timer
-			program_to_launch (string) - name of the program to launch when the timer fires
-			(opt) arguments (dict) - dictionary of URL parameter arguments to pass when calling the program_to_launch
-			(opt) timer_id (string) - ID of the timer if it is already known
-			
-		Raises:
-			InvalidTimerException
-		'''
-		
-		if timer_id is None:
-			self.timer_id = str(uuid4())
-		else:
-			self.timer_id = timer_id
-		
-		try:
-			if not (trigger_hour >= 0 and trigger_hour <=23):
-				raise InvalidTimerException("Trigger hour must be between 0 and 23")
-			
-			if not (trigger_minute >= 0 and trigger_minute <= 59):
-				raise InvalidTimerException("Trigger minute must be between 0 and 23")
-				
-			self.trigger_hour = trigger_hour
-			self.trigger_minute = trigger_minute
-		except Exception:
-			raise InvalidTimerException("Could not parse input time")
-			
-		if program_to_launch in ProgramAPI.valid_programs:
-			self.program_to_launch = program_to_launch
-		else:
-			raise InvalidTimerException("{} is not a valid program to launch.".format(program_to_launch))
-		
-		self.arguments = arguments
-		if arguments is not None:
-			if not isinstance(arguments, dict):
-				raise InvalidTimerException("Arguments list must be key/value pairs")
-		
-		self.timer_schedule = self.ingest_timer_schedule(timer_schedule)
-
-
-	def ingest_timer_schedule(self, timer_schedule):
-		'''
-		Validate and process a provided timer schedule.
-		
-		Arguments:
-			timer_schedule (list) - list of days of the week for the timer
-			
-		Raises:
-			InvalidTimerException
-		
-		Returns:
-			(list) - processed timer schedule with numeric days of week
-		'''
-		valid_entries = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-		
-		for item in timer_schedule:
-			if item not in valid_entries:
-				raise InvalidTimerException('{} is not a valid entry for a timer schedule'.format(item))
-		
-		a = [self.dow_to_num(x) for x in timer_schedule]
-		b = set(a)
-		sched = list(b)
-		
-		return sched
-
-	
-	@staticmethod
-	def dow_to_num(dow):
-		'''Convert three-letter day of week to number'''
-		d = dow.lower()
-		if d == 'mon':
-			return 1
-		elif d == 'tue':
-			return 2
-		elif d == 'wed':
-			return 3
-		elif d == 'thu':
-			return 4
-		elif d == 'fri':
-			return 5	
-		elif d == 'sat':
-			return 6
-		elif d == 'sun':
-			return 7
-	
-	@staticmethod
-	def num_to_dow(num):
-		'''Convert numeric day of week to three-letter format'''
-		if num == 1:
-			return 'mon'
-		elif num == 2:
-			return 'tue'
-		elif num == 3:
-			return 'wed'
-		elif num == 4:
-			return 'thu'
-		elif num == 5:
-			return 'fri'
-		elif num == 6:
-			return 'sat'
-		elif num == 7:
-			return 'sun'
-		
-	@classmethod
-	def from_json(cls, json_dict):
-		'''
-		Instantiate timer object from the json representation.
-		
-		Arguments:
-			json_dict (dict) - dictionary representation of the timer
-			
-		Returns:
-			(Timer) - timer object from the provided data
-		'''
-		timer_id = None
-		if 'timerId' in json_dict:
-			timer_id = json_dict['timerId']
-		
-		try:
-			args = json_dict['arguments']
-		except KeyError:
-			args = None
-			
-		if json_dict['timerSchedule'] is not None:
-			if isinstance(json_dict['timerSchedule'][0], int):
-				json_dict['timerSchedule'] = [cls.num_to_dow(x) for x in json_dict['timerSchedule']]
-			
-		time_obj = Timer(json_dict['triggerHour'], json_dict['triggerMinute'], json_dict['timerSchedule'], json_dict['programToLaunch'], args, timer_id)
-		return time_obj
-	
-	def to_storage_json(self):
-		'''
-		Output the json storage format of the timer (schedule in numeric day of week)
-		
-		Returns:
-			(dict) - dict for storage as json
-		'''		
-		resp = {
-			'timerId': self.timer_id,
-			'triggerHour': self.trigger_hour,
-			'triggerMinute': self.trigger_minute,
-			'timerSchedule': self.timer_schedule,
-			'programToLaunch': self.program_to_launch,
-			'arguments': self.arguments
-		}
-		
-		return resp
-	
-	def to_json(self):
-		'''
-		Output the client-facing json format of the timer (schedule in three-letter day of week)
-		
-		Returns:
-			(dict) - dict for showing to client
-		'''
-		resp = self.to_storage_json()
-		resp['timerSchedule'] = [self.num_to_dow(x) for x in self.timer_schedule]
-		
-		return resp
-		
-	def save_to_cron(self):
-		'''
-		Save the timer to the crontab
-		'''
-		# first see if this is new or update
-		found_cron = False
-		for job in cron:
-			if job.comment == self.timer_id:
-				# we found a matching record so just update item
-				found_cron = True
-				self.set_cron_record(job)
-				break
-				
-		if not found_cron:
-			job = cron.new(command='test')
-			self.set_cron_record(job)
-
-		cron.write()
-	
-	def set_cron_record(self, job):
-		'''
-		Set the parameters of the crontab entry
-		
-		Arguments:
-			job - the new or existing cron job to populate
-		'''
-		app.logger.info(self.to_storage_json())
-		arg_string = ''
-		if self.arguments is not None:
-			arg_list = []
-			for name, value in self.arguments.iteritems():
-				arg_list.append(name + "=" + str(value))
-			arg_string = '?' + '&'.join(arg_list)
-			
-		job.comment = self.timer_id
-		job.command = 'curl localhost:8081/programs/{}{}'.format(self.program_to_launch, arg_string)
-		job.minute.on(self.trigger_minute)
-		job.hour.on(self.trigger_hour)
-		job.dow.on(*self.timer_schedule)
-	
-	def delete_from_cron(self):
-		'''Delete the timer from the crontab'''
-		cron.remove_all(comment=self.timer_id)
-		cron.write()
-
 
 #################### PROGRAM ENDPOINTS #########################
 @api.resource('/stop-program')
 class StopProgramController(Resource):
 	def get(self):
-		'''Stop the currently executing program if one exists'''
+		'''End the currently executing program and go back to blackout'''
 		try:
 			global PROGRAM_PROCESS
 			app.logger.info('Handling GET request on /stop-program endpoint')
 			try:
 				if PROGRAM_PROCESS.is_alive():
 					current = PROGRAM_PROCESS.current_program
-					QUIT.set()
+					STOP.set()
 					PROGRAM_PROCESS.join()
 					PROGRAM_PROCESS = None
 					response = { "message": "stopped {} program successfully".format(current) }
@@ -586,7 +375,7 @@ class ProgramsAPI(Resource):
 
 @api.resource('/programs/<program>')
 class ProgramAPI(Resource):
-	valid_programs = ["wakeup", "wakeup_demo", "single_color", "full_wash", "blackout"]
+	valid_programs = ["wakeup", "wakeup_demo", "single_color", "changing_color", "blackout"]
 	
 	def get(self, program):
 		'''Run a program'''
@@ -596,16 +385,14 @@ class ProgramAPI(Resource):
 				return {"error": "{} is not a recognized program".format(program)}, 404
 				
 			global PROGRAM_PROCESS
-				
+			
 			# get the dict of url arguments in case they are needed
 			query_dict = request.args.to_dict()
 			
-			# kill any existing program process because we will create a new one shortly
+			# send the STOP command to existing program
 			try:
 				if PROGRAM_PROCESS.is_alive():
-					QUIT.set()
-					PROGRAM_PROCESS.join()
-					PROGRAM_PROCESS = None
+					STOP.set()
 			except AttributeError:
 				pass
 			
@@ -631,15 +418,16 @@ class ProgramAPI(Resource):
 						raise ValueError
 						
 				except (KeyError, ValueError, TypeError):
-					return { "error": "red, green, and blue values are required and must be integers between 0 and 255." }, 400
+					return { "error": "red, green, and blue values must be integers between 0 and 255." }, 400
+					
+				PROGRAM_PROCESS.single_color(red, green, blue)
 				
-				PROGRAM_PROCESS = SingleColorProgram(QUIT, red, green, blue)
-				PROGRAM_PROCESS.start()
+			elif program == 'changing_color':
+				PROGRAM_PROCESS.changing_color()
 					
 					
 			elif program == 'blackout':
-				PROGRAM_PROCESS = BlackoutProgram(QUIT)
-				PROGRAM_PROCESS.start()
+				PROGRAM_PROCESS.blackout()
 				
 				
 			elif program == 'wakeup':
@@ -656,17 +444,11 @@ class ProgramAPI(Resource):
 				except (ValueError, TypeError):
 					return { "error": "if provided, 'multiplier' must be an integer greater than 0" }, 400
 				
-				if multiplier is None:
-					PROGRAM_PROCESS = WakeupProgram(QUIT)
-				else:
-					PROGRAM_PROCESS = WakeupProgram(QUIT, multiplier)
-				
-				PROGRAM_PROCESS.start()
+				PROGRAM_PROCESS.wakeup(multiplier)
 			
 			
 			elif program == 'wakeup_demo':
-				PROGRAM_PROCESS = WakeupProgram(QUIT, 1)
-				PROGRAM_PROCESS.start()
+				PROGRAM_PROCESS.wakeup(1)
 				
 			return {}, 200
 			
@@ -675,273 +457,7 @@ class ProgramAPI(Resource):
 			return { "error": "Error handling request." }, 500
 
 			
-class ColorObject(object):
-	'''Object for defining RGB color'''
-	def __init__(self, r, g, b):
-		self.r = r
-		self.g = g
-		self.b = b
 
-class BaseProgram(multiprocessing.Process):
-	def __init__(self, quit_event):
-		'''
-		Initialize a program
-		
-		Arguments:
-			quit_event (multiprocessing.Event) - event for this subprocess being notified that it should cleanup and exit
-		'''
-		super(BaseProgram, self).__init__()
-		self.daemon = True
-		
-		self.quit_event = quit_event
-		self.strip = rpi.PixelStrip(NUM_PIXELS, 10)
-		self.strip.begin()
-	
-	def exit_gracefully(self):
-		'''Exit the currently running program gracefully and cleanup this subprocess'''
-		app.logger.info('Stopping current program during process shutdown')
-		self.quit_event.clear()
-		self.blackout()
-		self.strip._cleanup()
-		self.current_program = None
-	
-	def blackout(self):
-		'''Run a blackout program to ensure the pixels are off'''
-		data = [ColorObject(0,0,0) for i in range(NUM_PIXELS)]
-		for i in range(0,5):
-			self.send_data(data)
-			sleep(.05)
-			
-	def send_data(self, data):
-		'''
-		Send a data packet to the pixels.
-		
-		Arguments:
-			data (list[ColorObject]) - list of color objects to be transmitted to pixels
-		'''
-		for i in range(0,len(data)):
-			# note the ordering of RBG in the mapping. Not sure how to make the library do tha that for me in the PixelStrip function
-			self.strip.setPixelColorRGB(i,data[i].r, data[i].b, data[i].g)
-		
-		self.strip.show()
-
-		
-class BlackoutProgram(BaseProgram):
-	'''Blackout program to turn off the pixels'''
-	def __init__(self, quit_event):
-		'''
-		Initialize the program
-		
-		Arguments:
-			quit_event - see parent
-		'''
-		super(BlackoutProgram, self).__init__(quit_event)
-		self.current_program = 'blackout'
-		
-	def run(self):
-		'''Run the program'''
-		app.logger.info('Starting BlackoutProgram')
-		self.exit_gracefully()
-		
-		
-class SingleColorProgram(BaseProgram):
-	'''Program to turn the entire strip to a specific RGB color'''
-	def __init__(self, quit_event, red=0, green=0, blue=0):
-		'''
-		Initialize the program
-		
-		Arguments:
-			quit_event - see parent
-			red (int) - red value
-			green (int) - green value
-			blue (int) - blue value
-		'''
-		super(SingleColorProgram, self).__init__(quit_event)
-		self.red = red
-		self.green = green
-		self.blue = blue
-		self.current_program = 'single_color'
-		
-		
-	def run(self):
-		'''Run the program'''
-		app.logger.info('Starting SingleColorProgram with rgb = {}, {}, {}'.format(str(self.red), str(self.green), str(self.blue)))
-		r = self.red
-		g = self.green
-		b = self.blue
-		data = [ ColorObject(r, g, b) for i in range(NUM_PIXELS)]
-		
-		while not self.quit_event.is_set():
-			self.send_data(data)
-			sleep(.1)
-		
-		self.exit_gracefully()
-		
-
-class FullWashProgram(BaseProgram):
-	'''Program that shifts randomly between a list of colors. TODO IN PROGRESS'''	
-	# r, g, b
-	program_options = [
-		(255,0,255),	# pink
-		(128,0,255),	# purple
-		(255,0,128),	# bright pink
-		(0,255,255),	# teal
-		(0,255,128),	# green teal
-		(0,128,255),	# blue teal
-		(255,0,0),		# red
-		(0,255,0),		# green
-		(0,0,255)		# blue
-	]
-	
-	def __init__(self, quit_event):
-		'''
-		Initialize the program
-		
-		Arguments:
-			quit_event - see parent
-		'''
-		super(FullWashProgram, self).__init__(quit_event)
-		self.transition_cycles = 10
-		self.current_program = 'full_wash'
-		
-	def run(self):
-		'''Run the program'''
-		app.logger.info('Starting FullWashProgram')
-		while not self.quit_event.is_set():
-			self.send_data(data)
-			sleep(.1)
-		
-				
-		
-class WakeupProgram(BaseProgram):
-	'''Program that simulates a sunrise sequence increasing in color, brightness, and pixel count throughout.'''
-	
-	# r, g, b, led pct, transition time ratio from this to next,
-	program_sequence = [
-		(0,0,0,10,1),	# black
-		(0,0,10,15,1),	# dark blue
-		(2,0,15,20,1),	# purple
-		(7,0,10,25,1),	# reddish purple
-		(20,1,0,30,1),	# blood orange
-		(50,6,0,40,1),	# orange
-		(70,15,0,50,1),	# yellow
-		(70,15,2,60,2),	# warm white
-		(255,200,100,100,5), # white
-		(255,200,100,100,0)	# white
-	]
-
-	def __init__(self, quit_event, multiplier=30):
-		'''
-		Initialize the program
-		
-		Arguments:
-			quit_event - see parent
-			multipler (int) - multiplier for lengthening the program. This value roughly sets the duration of the "rising" portion of the program to 1 minute * the multiplier.
-		'''
-		super(WakeupProgram, self).__init__(quit_event)
-		self.base_multiplier = 60
-		self.multiplier = multiplier
-		if self.multiplier == 1:
-			self.current_program = 'wakeup_demo'
-		else:
-			self.current_program = 'wakeup'
-	
-	def _calc_deltas(self, from_state, to_state):
-		'''
-		Calculate deltas between one state and another
-		
-		Arguments:
-			from_state (list) - starting state
-			to_state (list) - ending state
-			
-		Returns:
-			tuple
-				red_delta (float) - delta in red
-				green_delta (float) - delta in green
-				blue_delta (float) - delta in blue
-				pixel_delta (float) - delta in pixel count
-		'''
-		red_delta = self._calc_delta(to_state[0], from_state[0])
-		green_delta = self._calc_delta(to_state[1], from_state[1])
-		blue_delta = self._calc_delta(to_state[2], from_state[2])
-		pixel_delta = (float(to_state[3])/100.0 * float(NUM_PIXELS)) - (float(from_state[3])/100.0 * float(NUM_PIXELS))
-		
-		return red_delta, green_delta, blue_delta, pixel_delta
-		
-	def _calc_delta(self, to_item, from_item):
-		'''
-		Calculate delta between two items
-		
-		Arguments:
-			to_item (int/float) - end item
-			from_item (int/float) - starting item
-			
-		Returns:
-			(float) - delta between the items
-		'''
-		return float(to_item - from_item)
-		
-	def _calc_delta_influence(self, delta, iter_count, j):
-		'''
-		Determine the influence of the delta for a given iteration.
-		
-		Arguments:
-			delta (float) - the delta to check
-			iter_count (int) - total number of iterations
-			j (int) - current value of the iteration
-			
-		Returns:
-			(int) - the portion of the delta to apply on this iteration
-		'''
-		return int(round(float(delta) * (float(j) / float(iter_count))))
-		
-		
-	def run(self):
-		'''Run the program'''
-		app.logger.info('Starting WakeupProgram with multiplier={}'.format(str(self.multiplier)))
-		data = [ColorObject(0,0,0) for x in range(0,NUM_PIXELS)]
-		for i in range(1, len(WakeupProgram.program_sequence)):
-			
-			from_state = WakeupProgram.program_sequence[i-1]
-			to_state = WakeupProgram.program_sequence[i]
-			app.logger.info(str(i))
-			app.logger.info(from_state)
-			
-			red_delta, green_delta, blue_delta, pixel_delta = self._calc_deltas(from_state, to_state)
-			
-			iter_count = self.multiplier * self.base_multiplier * from_state[4]
-			app.logger.info("iter_count = " + str(iter_count))
-			app.logger.info("deltas: ")
-			app.logger.info((red_delta, green_delta, blue_delta, pixel_delta))
-			for j in range(0, iter_count):
-				# app.logger.info("j = " + str(j))
-				red = from_state[0] + self._calc_delta_influence(red_delta, iter_count, j)
-				green = from_state[1] + self._calc_delta_influence(green_delta, iter_count, j)
-				blue = from_state[2] + self._calc_delta_influence(blue_delta, iter_count, j)
-				pixel_count = int(round(float(from_state[3])/100.0*NUM_PIXELS)) + self._calc_delta_influence(pixel_delta, iter_count, j)
-				# app.logger.info(str(pixel_count) + " " + str(pixel_delta))
-				
-				# set unused pixels to black
-				
-				for idx in range(pixel_count, NUM_PIXELS):
-					data[idx] = ColorObject(0,0,0)
-				
-				try:
-					# set used pixels to correct color
-					for k in range(0, pixel_count):
-						data[k] = ColorObject(red, green, blue)
-				except Exception as e:
-					app.logger.info(str(k))
-					app.logger.info(str(pixel_count))
-					app.logger.info(str(pixel_delta))
-					app.logger.info(str(NUM_PIXELS) + '\n')
-					
-					raise e
-					
-				self.send_data(data)
-				sleep(.1)
-				
-		self.exit_gracefully()
 	
 	
 	

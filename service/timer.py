@@ -1,9 +1,100 @@
+import json
+
 from crontab import CronTab
+
+from programs import ProgramList
+
+class Timers(object):
+	'''Object defining the collection of timers'''
+	
+	def __init__(self, logger, timer_file):
+		self.logger = logger
+		self.timer_file = timer_file
+	
+	def enable_timer(self, timer_id):
+		timer = self.get_timer_by_id(timer_id)
+		timer.is_enabled = True
+		self.add_or_modify_timer(timer)
+		
+		return timer
+		
+	def disable_timer(self, timer_id):
+		timer = self.get_timer_by_id(timer_id)
+		timer.is_enabled = False
+		self.add_or_modify_timer(timer)
+		
+		return timer
+	
+	def add_or_modify_timer(self, timer):
+		timer_dict = self.read_timers_from_file()
+		timer_dict[timer.timer_id] = timer
+		timer.save_to_cron()
+		self.write_timers_to_file(timer_dict)
+		
+		return timer
+		
+	def delete_timer(self, timer_id):
+		timer = self.get_timer_by_id(timer_id)
+		timer_dict = self.read_timers_from_file()
+		timer_dict.pop(timer_id)
+		timer.delete_from_cron()
+		self.write_timers_to_file(timer_dict)
+		
+	def read_timers_from_file(self):
+		'''
+		Read timers from the timer file into a dictionary
+		
+		Returns:
+			timer_dict (dict) - dictionary of timers
+		'''
+		with open(self.timer_file, 'r') as f:
+			timer_dict = json.loads(f.read())
+			
+		for timer_id in timer_dict.iterkeys():
+			timer_dict[timer_id] = Timer.from_json(self.logger, timer_dict[timer_id])
+		
+		return timer_dict
+		
+	
+	def write_timers_to_file(self, timer_dict):
+		'''
+		Write all timers to the timer file.
+		
+		Arguments:
+			timer_dict (dict) - dictionary of timers
+		'''
+		for timer_id in timer_dict.iterkeys():
+			timer_dict[timer_id] = timer_dict[timer_id].to_storage_json()
+				
+		with open(self.timer_file, 'w') as f:
+			f.write(json.dumps(timer_dict, indent=4))
+
+
+	def get_timer_by_id(self, timer_id):
+		'''
+		Get a specific timer from the timer file based on timer_id.
+		
+		Arguments:
+			timer_id (string) - id of the desired timer
+			
+		Raises:
+			TimerNotFound
+			
+		Returns:
+			Timer object for the desired timer
+		'''
+		timer_dict = self.read_timers_from_file()
+		
+		try:
+			return timer_dict[timer_id]
+		
+		except KeyError:
+			raise TimerNotFound()
 
 class Timer(object):
 	'''Object defining a timer'''
 
-	def __init__(self, timer_id, trigger_hour, trigger_minute, timer_schedule, program_to_launch, is_enabled=True, arguments=None):
+	def __init__(self, logger, timer_id, trigger_hour, trigger_minute, timer_schedule, program_to_launch, is_enabled=True, arguments=None):
 		'''
 		Initialize a timer object.
 		
@@ -19,23 +110,32 @@ class Timer(object):
 		Raises:
 			InvalidTimerException
 		'''
-		self.timer_id = timer_id
-		self.is_enabled = is_enabled
+		self.logger = logger
 		self.cron = CronTab(user='pi')
+		
+		self.timer_id = timer_id
+		if is_enabled is None:
+			self.is_enabled = True
+		else:
+			self.is_enabled = is_enabled
 		
 		try:
 			if not (trigger_hour >= 0 and trigger_hour <=23):
 				raise InvalidTimerException("Trigger hour must be between 0 and 23")
 			
 			if not (trigger_minute >= 0 and trigger_minute <= 59):
-				raise InvalidTimerException("Trigger minute must be between 0 and 23")
+				raise InvalidTimerException("Trigger minute must be between 0 and 59")
 				
 			self.trigger_hour = trigger_hour
 			self.trigger_minute = trigger_minute
-		except Exception:
+		
+		except InvalidTimerException:
+			raise
+		
+		except Exception as e:
 			raise InvalidTimerException("Could not parse input time")
 			
-		if program_to_launch in ProgramAPI.valid_programs:
+		if program_to_launch in ProgramList.valid_programs:
 			self.program_to_launch = program_to_launch
 		else:
 			raise InvalidTimerException("{} is not a valid program to launch.".format(program_to_launch))
@@ -112,7 +212,7 @@ class Timer(object):
 			return 'sun'
 		
 	@classmethod
-	def from_json(cls, json_dict):
+	def from_json(cls, logger, json_dict):
 		'''
 		Instantiate timer object from the json representation.
 		
@@ -123,7 +223,7 @@ class Timer(object):
 			(Timer) - timer object from the provided data
 		'''
 		timer_id = json_dict['timerId']
-		is_enabled = json_dict['isEnabled']
+		is_enabled = json_dict['isEnabled'] if json_dict['isEnabled'] is not None else True
 		
 		try:
 			args = json_dict['arguments']
@@ -134,8 +234,9 @@ class Timer(object):
 			if isinstance(json_dict['timerSchedule'][0], int):
 				json_dict['timerSchedule'] = [cls.num_to_dow(x) for x in json_dict['timerSchedule']]
 			
-		time_obj = Timer(timer_id, json_dict['triggerHour'], json_dict['triggerMinute'], json_dict['timerSchedule'], json_dict['programToLaunch'], is_enabled, args)
-		return time_obj
+		timer_obj = Timer(logger, timer_id, json_dict['triggerHour'], json_dict['triggerMinute'], json_dict['timerSchedule'], json_dict['programToLaunch'], is_enabled, args)
+		
+		return timer_obj
 	
 	def to_storage_json(self):
 		'''
@@ -194,7 +295,7 @@ class Timer(object):
 		Arguments:
 			job - the new or existing cron job to populate
 		'''
-		app.logger.info(self.to_storage_json())
+		self.logger.info(self.to_storage_json())
 		arg_string = ''
 		if self.arguments is not None:
 			arg_list = []
@@ -213,4 +314,11 @@ class Timer(object):
 		'''Delete the timer from the crontab'''
 		self.cron.remove_all(comment=self.timer_id)
 		self.cron.write()
+		
+#################### CUSTOM EXCEPTIONS ###########################	
+class TimerNotFound(Exception):
+	pass
+
+class InvalidTimerException(Exception):
+	pass
 		

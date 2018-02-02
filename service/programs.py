@@ -1,7 +1,11 @@
 from time import sleep
 import multiprocessing
+from Queue import Empty, Full
 
 import rpi_ws281x as rpi
+
+class ProgramList(object):
+	valid_programs = ["wakeup", "wakeup_demo", "single_color", "changing_color", "blackout"]
 
 class ColorObject(object):
 	'''Object for defining RGB color'''
@@ -9,9 +13,20 @@ class ColorObject(object):
 		self.r = r
 		self.g = g
 		self.b = b
+		
+class ProgramTask(object):
+	'''Object for defining a program to run'''
+	def __init__(self, program, arg_dict=None):
+		self.program = program
+		
+		if arg_dict is None:
+			self.arg_dict = {}
+		else:
+			self.arg_dict = arg_dict
 
 class BaseProgram(multiprocessing.Process):
-	def __init__(self, logger, stop_event, num_pixels):
+	
+	def __init__(self, logger, queue, num_pixels):
 		'''
 		Initialize a program
 		
@@ -22,8 +37,10 @@ class BaseProgram(multiprocessing.Process):
 		self.daemon = True
 		
 		self.logger = logger
-		self.stop_event = stop_event
+		self.queue = queue
 		self.num_pixels = num_pixels
+		
+		self.current_program = None
 		
 		self.strip = rpi.PixelStrip(self.num_pixels, 10)
 		self.strip.begin()
@@ -46,7 +63,51 @@ class BaseProgram(multiprocessing.Process):
 			self.strip.setPixelColorRGB(i,data[i].r, data[i].b, data[i].g)
 		
 		self.strip.show()
+		
+	def _check_for_task(self):
+		'''Returns boolean indicating if new task was found on the queue'''
+		try:
+			task = self.queue.get_nowait()
+			self.queue.task_done()
+			self.queue.put_nowait(task)
+			self.logger.info('Detected new task on queue')
+			return True
+
+		except Empty:
+			return False
 	
+	
+	def run(self):
+		while True:
+			try:
+				next_task = self.queue.get_nowait()
+				self.queue.task_done()
+			
+				if next_task.program == 'KILL':
+					# Received kill task so exit
+					self.logger.info('Received shutdown command so exiting this process.')
+					self.quit_blackout()
+					break
+					
+				elif next_task.program == 'blackout':
+					self.blackout()
+					
+				elif next_task.program == 'single_color':
+					self.single_color(**next_task.arg_dict)
+					
+				elif next_task.program == 'wakeup':
+					exited_normally = self.wakeup(**next_task.arg_dict)
+					
+					if exited_normally:
+						# if we weren't given a new task that caused us to abandon the program early, then
+						# queue up the blackout program since that is our base resting state
+						self.queue.put_nowait(ProgramTask('blackout'))
+					
+			except Empty:
+				# Queue is empty so let's sleep for a second before checking again.
+				# Realistically, shouldn't really get here since paradigm is to always be executing a program, even if it's blackout
+				sleep(1)
+			
 	
 	# definition of individual programs
 	def quit_blackout(self):
@@ -55,9 +116,9 @@ class BaseProgram(multiprocessing.Process):
 		self.logger.info('Starting Program: {}'.format(self.current_program))
 		
 		data = [ColorObject(0,0,0) for i in range(self.num_pixels)]
-		for i in range(0,100):
+		for i in range(0,5):
 			self._send_data(data)
-			sleep(.05)
+			sleep(.01)
 		
 		self.logger.info('Exiting Program: {}'.format(self.current_program))
 
@@ -67,12 +128,11 @@ class BaseProgram(multiprocessing.Process):
 		self.logger.info('Starting Program: {}'.format(self.current_program))
 		
 		data = [ColorObject(0,0,0) for i in range(self.num_pixels)]
-		while not self.stop_event.is_set():
+		while not self._check_for_task():
 			self._send_data(data)
-			sleep(.05)
+			sleep(.1)
 			
 		self.logger.info('Exiting Program: {}'.format(self.current_program))
-		self.stop_event.clear()
 			
 	def single_color(self, red=0, green=0, blue=0):
 		'''
@@ -86,13 +146,12 @@ class BaseProgram(multiprocessing.Process):
 		self.current_program = 'single_color'
 		self.logger.info('Starting Program: {} with rgb = {}, {}, {}'.format(self.current_program, str(red), str(green), str(blue)))
 		
-		data = [ColorObject(r, g, b) for i in range(self.num_pixels)]
-		while not self.stop_event.is_set():
+		data = [ColorObject(red, green, blue) for i in range(self.num_pixels)]
+		while not self._check_for_task():
 			self._send_data(data)
 			sleep(.1)
-			
-		self.logger.info('Exiting Program: {}'.format(self.current_program))
-		self.stop_event.clear()
+		
+		self.logger.info('Exiting Program: {}'.format(self.current_program))		
 		self.quit_blackout()
 
 	def changing_color(self):
@@ -113,20 +172,23 @@ class BaseProgram(multiprocessing.Process):
 			(0,0,255)		# blue
 		]
 		
-		# return to blackout once finished
+		# TODO: need to run the program here
+		
+		
+		self.logger.info('Exiting Program: {}'.format(self.current_program))		
 		self.quit_blackout()
-	
-	def wakeup(multiplier=30):
+
+	def wakeup(self, multiplier=30):
 		'''
 		Program that simulates a sunrise sequence increasing in color, brightness, and pixel count throughout.
 		
 		Args:
 			(opt) multiplier (int) - sets the total duration of the sunrise. Full brightness is reached in roughly the number of minutes equal to the multiplier.
 		'''
-		if multiplier == 1:
-			self.current_program = 'wakeup_demo'
-		else:
-			self.current_program = 'wakeup'
+		self.current_program = 'wakeup'
+			
+		exited_normally = True
+		
 		self.logger.info('Starting Program: {} with multiplier={}'.format(self.current_program, str(multiplier)))
 
 		# r, g, b, led pct, transition time ratio from this to next,
@@ -160,7 +222,7 @@ class BaseProgram(multiprocessing.Process):
 			self.logger.info((red_delta, green_delta, blue_delta, pixel_delta))
 			for j in range(0, iter_count):
 				if iter_count % 10 == 0:
-					if self.stop_event.is_set():
+					if self._check_for_task():
 						break
 				red = from_state[0] + self._calc_delta_influence(red_delta, iter_count, j)
 				green = from_state[1] + self._calc_delta_influence(green_delta, iter_count, j)
@@ -187,12 +249,16 @@ class BaseProgram(multiprocessing.Process):
 				self._send_data(data)
 				sleep(.1)
 			
-			if self.stop_event.is_set():
+			if self._check_for_task():
+				exited_normally = False
 				break
 		
 		
-		self.stop_event.clear()
+		self.logger.info('Exiting Program: {}'.format(self.current_program))
 		self.quit_blackout()
+		
+		return exited_normally
+
 	
 	def _calc_deltas(self, from_state, to_state):
 		'''

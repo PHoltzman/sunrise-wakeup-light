@@ -191,7 +191,7 @@ class Timer(object):
 		elif d == 'sat':
 			return 6
 		elif d == 'sun':
-			return 7
+			return 0
 	
 	@staticmethod
 	def num_to_dow(num):
@@ -208,7 +208,7 @@ class Timer(object):
 			return 'fri'
 		elif num == 6:
 			return 'sat'
-		elif num == 7:
+		elif num == 0:
 			return 'sun'
 		
 	@classmethod

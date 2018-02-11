@@ -1,0 +1,128 @@
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context="house.holtzman.sunrise.ProgramsFragment">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="15sp"
+        android:textSize="15sp"
+        android:text="Current Program:"/>
+
+    <TextView
+        android:id="@+id/tv_current_program"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="15sp"
+        android:textSize="15sp"
+        android:textStyle="italic"
+        android:text="unsynced"/>
+
+    <Button
+        android:id="@+id/btn_read_program"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Read Current Program"
+        style="?android:attr/borderlessButtonStyle" />
+
+    <Button
+        android:id="@+id/btn_blackout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Blackout"
+        style="?android:attr/borderlessButtonStyle" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_single_color"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Single Color"
+            style="?android:attr/borderlessButtonStyle" />
+
+        <EditText
+            android:id="@+id/sc_1"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+
+        <EditText
+            android:id="@+id/sc_2"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+
+        <EditText
+            android:id="@+id/sc_3"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_color_change"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Changing Color"
+            style="?android:attr/borderlessButtonStyle" />
+
+        <EditText
+            android:id="@+id/cc_1"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+
+        <EditText
+            android:id="@+id/cc_2"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+
+        <EditText
+            android:id="@+id/cc_3"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_wakeup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Wakeup"
+            style="?android:attr/borderlessButtonStyle" />
+
+        <EditText
+            android:id="@+id/wakeup_1"
+            android:ems="3"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:inputType="number"/>
+
+    </LinearLayout>
+</LinearLayout>

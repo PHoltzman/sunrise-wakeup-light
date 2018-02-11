@@ -1,11 +1,13 @@
 from time import sleep
 import multiprocessing
 from Queue import Empty, Full
+import random
 
 import rpi_ws281x as rpi
 
 class ProgramList(object):
 	valid_programs = ["wakeup", "wakeup_demo", "single_color", "changing_color", "blackout"]
+	current_program_filename = 'current_program.txt'
 
 class ColorObject(object):
 	'''Object for defining RGB color'''
@@ -40,7 +42,10 @@ class BaseProgram(multiprocessing.Process):
 		self.queue = queue
 		self.num_pixels = num_pixels
 		
-		self.current_program = None
+		# used for wakeup program and changing_color program
+		self.base_multiplier = 60
+		
+		self._set_current_program("None")
 		
 		self.strip = rpi.PixelStrip(self.num_pixels, 10)
 		self.strip.begin()
@@ -49,7 +54,12 @@ class BaseProgram(multiprocessing.Process):
 		'''Exit the subprocess when instructed. Should only be called if the whole service is coming down.'''
 		self.quit_blackout()
 		self.strip._cleanup()
-		self.current_program = None
+		self._set_current_program("None")
+		
+	def _set_current_program(self, program):
+		self.current_program = program
+		with open(ProgramList.current_program_filename, 'w') as f:
+			f.write(self.current_program)
 		
 	def _send_data(self, data):
 		'''
@@ -95,6 +105,9 @@ class BaseProgram(multiprocessing.Process):
 				elif next_task.program == 'single_color':
 					self.single_color(**next_task.arg_dict)
 					
+				elif next_task.program == 'changing_color':
+					self.changing_color(**next_task.arg_dict)
+					
 				elif next_task.program == 'wakeup':
 					exited_normally = self.wakeup(**next_task.arg_dict)
 					
@@ -112,7 +125,7 @@ class BaseProgram(multiprocessing.Process):
 	# definition of individual programs
 	def quit_blackout(self):
 		'''Program to turn all LEDs to black briefly before the subprocess is killed.'''
-		self.current_program = 'quit_blackout'
+		self._set_current_program('quit_blackout')
 		self.logger.info('Starting Program: {}'.format(self.current_program))
 		
 		data = [ColorObject(0,0,0) for i in range(self.num_pixels)]
@@ -124,7 +137,7 @@ class BaseProgram(multiprocessing.Process):
 
 	def blackout(self):
 		'''Program to turn all LEDs to black and keep them there.'''
-		self.current_program = 'blackout'
+		self._set_current_program('blackout')
 		self.logger.info('Starting Program: {}'.format(self.current_program))
 		
 		data = [ColorObject(0,0,0) for i in range(self.num_pixels)]
@@ -143,7 +156,7 @@ class BaseProgram(multiprocessing.Process):
 			(opt) green (int) - green value
 			(opt) blue (int) - blue value
 		'''
-		self.current_program = 'single_color'
+		self._set_current_program('single_color')
 		self.logger.info('Starting Program: {} with rgb = {}, {}, {}'.format(self.current_program, str(red), str(green), str(blue)))
 		
 		data = [ColorObject(red, green, blue) for i in range(self.num_pixels)]
@@ -154,27 +167,65 @@ class BaseProgram(multiprocessing.Process):
 		self.logger.info('Exiting Program: {}'.format(self.current_program))		
 		self.quit_blackout()
 
-	def changing_color(self):
+	def changing_color(self, dwell_time_ms=10000, transition_time_ms=2000, brightness_scale_pct=100):
 		'''Program that shifts randomly between a list of colors. TODO IN PROGRESS'''	
-		self.current_program = 'changing_color'
-		self.logger.info('Starting Program: {}'.format(self.current_program))
+		self._set_current_program('changing_color')
+		self.logger.info('Starting Program: {} with dwell_time_ms={} and transition_time_ms={} and brightness_scale_pct={}'.format(self.current_program, str(dwell_time_ms), str(transition_time_ms), str(brightness_scale_pct)))
 		
-		# r, g, b
-		program_options = [
-			(255,0,255),	# pink
-			(128,0,255),	# purple
-			(255,0,128),	# bright pink
-			(0,255,255),	# teal
-			(0,255,128),	# green teal
-			(0,128,255),	# blue teal
-			(255,0,0),		# red
-			(0,255,0),		# green
-			(0,0,255)		# blue
+		# r, g, b, led pct
+		raw_program_options = [
+			(255,0,255,100),	# pink
+			(128,0,255,100),	# purple
+			(255,0,128,100),	# bright pink
+			(0,255,255,100),	# teal
+			(0,255,128,100),	# green teal
+			(0,128,255,100),	# blue teal
+			(255,0,0,100),		# red
+			(0,255,0,100),		# green
+			(0,0,255,100)		# blue
 		]
 		
-		# TODO: need to run the program here
+		# scale the programs to control brightness
+		scale_factor = float(brightness_scale_pct) / float(100)
+		program_options = [(int(x[0]*scale_factor), int(x[1]*scale_factor), int(x[2]*scale_factor), x[3]) for x in raw_program_options]
+			
 		
+		# pick the first color
+		prev_program = random.choice(program_options)
+		self.logger.info(prev_program)
 		
+		while not self._check_for_task():
+			
+			# setup the data array for the color
+			data = [ColorObject(prev_program[0], prev_program[1], prev_program[2]) for i in range(self.num_pixels)]
+			
+			# loop through the dwell time and send the color to the pixels
+			for i in range(0, dwell_time_ms, 100):
+				self._send_data(data)
+				sleep(.1)
+				if self._check_for_task():
+					break
+			
+			# pick the next color
+			while True:
+				program = random.choice(program_options)
+				if program != prev_program:
+					# if the random color is the same as the previous one, then keep repicking until it isn't
+					break
+			
+			self.logger.info(program)
+			
+			# transition between colors over the transition_time_ms period
+			iter_count = transition_time_ms * self.base_multiplier / 10000
+			exited_normally = self._iterate_color_transition(prev_program, program, iter_count, data)
+			if not exited_normally:
+				break
+			
+			
+			# prep for the next iteration
+			prev_program = program
+
+			
 		self.logger.info('Exiting Program: {}'.format(self.current_program))		
 		self.quit_blackout()
 
@@ -185,12 +236,11 @@ class BaseProgram(multiprocessing.Process):
 		Args:
 			(opt) multiplier (int) - sets the total duration of the sunrise. Full brightness is reached in roughly the number of minutes equal to the multiplier.
 		'''
-		self.current_program = 'wakeup'
-			
+		self._set_current_program('wakeup')
+		self.logger.info('Starting Program: {} with multiplier={}'.format(self.current_program, str(multiplier)))
+		
 		exited_normally = True
 		
-		self.logger.info('Starting Program: {} with multiplier={}'.format(self.current_program, str(multiplier)))
-
 		# r, g, b, led pct, transition time ratio from this to next,
 		program_sequence = [
 			(0,0,0,10,1),	# black
@@ -214,51 +264,55 @@ class BaseProgram(multiprocessing.Process):
 			self.logger.info(str(i))
 			self.logger.info(from_state)
 			
-			red_delta, green_delta, blue_delta, pixel_delta = self._calc_deltas(from_state, to_state)
-			
 			iter_count = multiplier * base_multiplier * from_state[4]
 			self.logger.info("iter_count = " + str(iter_count))
-			self.logger.info("deltas: ")
-			self.logger.info((red_delta, green_delta, blue_delta, pixel_delta))
-			for j in range(0, iter_count):
-				if iter_count % 10 == 0:
-					if self._check_for_task():
-						break
-				red = from_state[0] + self._calc_delta_influence(red_delta, iter_count, j)
-				green = from_state[1] + self._calc_delta_influence(green_delta, iter_count, j)
-				blue = from_state[2] + self._calc_delta_influence(blue_delta, iter_count, j)
-				pixel_count = int(round(float(from_state[3])/100.0*self.num_pixels)) + self._calc_delta_influence(pixel_delta, iter_count, j)
-				
-				
-				# set unused pixels to black
-				for idx in range(pixel_count, self.num_pixels):
-					data[idx] = ColorObject(0,0,0)
-				
-				try:
-					# set used pixels to correct color
-					for k in range(0, pixel_count):
-						data[k] = ColorObject(red, green, blue)
-				except Exception as e:
-					self.logger.info(str(k))
-					self.logger.info(str(pixel_count))
-					self.logger.info(str(pixel_delta))
-					self.logger.info(str(self.num_pixels) + '\n')
-					
-					raise e
-					
-				self._send_data(data)
-				sleep(.1)
+			exited_normally = self._iterate_color_transition(from_state, to_state, iter_count, data)
 			
-			if self._check_for_task():
+			if exited_normally == False or self._check_for_task():
 				exited_normally = False
 				break
-		
 		
 		self.logger.info('Exiting Program: {}'.format(self.current_program))
 		self.quit_blackout()
 		
 		return exited_normally
 
+	def _iterate_color_transition(self, from_state, to_state, iter_count, data):
+		red_delta, green_delta, blue_delta, pixel_delta = self._calc_deltas(from_state, to_state)
+		self.logger.info("deltas: ")
+		self.logger.info((red_delta, green_delta, blue_delta, pixel_delta))
+		
+		for j in range(0, iter_count):
+			if iter_count % 10 == 0:
+				if self._check_for_task():
+					return False
+			red = from_state[0] + self._calc_delta_influence(red_delta, iter_count, j)
+			green = from_state[1] + self._calc_delta_influence(green_delta, iter_count, j)
+			blue = from_state[2] + self._calc_delta_influence(blue_delta, iter_count, j)
+			pixel_count = int(round(float(from_state[3])/100.0*self.num_pixels)) + self._calc_delta_influence(pixel_delta, iter_count, j)
+			
+			
+			# set unused pixels to black
+			for idx in range(pixel_count, self.num_pixels):
+				data[idx] = ColorObject(0,0,0)
+			
+			try:
+				# set used pixels to correct color
+				for k in range(0, pixel_count):
+					data[k] = ColorObject(red, green, blue)
+			except Exception as e:
+				self.logger.info(str(k))
+				self.logger.info(str(pixel_count))
+				self.logger.info(str(pixel_delta))
+				self.logger.info(str(self.num_pixels) + '\n')
+				
+				raise e
+				
+			self._send_data(data)
+			sleep(.1)
+		
+		return True
+		
 	
 	def _calc_deltas(self, from_state, to_state):
 		'''

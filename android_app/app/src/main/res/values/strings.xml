@@ -1,0 +1,51 @@
+<resources>
+    <string name="app_name">Sunrise</string>
+
+    <!-- Strings for main activity -->
+    <string name="btn_alarms">Alarms</string>
+    <string name="btn_programs">Programs</string>
+    <string name="btn_time">Time</string>
+    <string name="btn_admin">Admin</string>
+
+    <!-- Strings for timer activity -->
+    <string name="lbl_current_alarms">Current Alarms: </string>
+    <string name="btn_alarms_new_alarm">Create New Alarm</string>
+    <string name="btn_alarms_toggle_alarm">Toggle Alarm</string>
+    <string name="btn_alarms_delete_alarm">Delete Alarm</string>
+    <string name="btn_alarms_wipe_alarms">Wipe All Alarms</string>
+    <string name="title_activity_alarm">AlarmActivity</string>
+    <string name="lbl_no_alarms">No Alarms</string>
+
+    <!-- Strings for time activity -->
+    <string name="lbl_current_time">Current Time: </string>
+    <string name="btn_time_read_time">Refresh Time from Arduino</string>
+    <string name="btn_time_set_time">Force Time Resync from Web</string>
+
+    <!-- Strings for programs activity -->
+    <string name="lbl_current_program">Current Program: </string>
+    <string name="btn_programs_deactivate_current">Deactivate Running Program</string>
+    <string name="btn_programs_activate_program">Activate Program</string>
+
+    <string-array name="programs_array">
+        <item>wakeup</item>
+        <item>blackout</item>
+        <item>wakeup_demo</item>
+        <item>single_color</item>
+        <item>changing_color</item>
+    </string-array>
+
+    <!-- Strings for admin activity -->
+    <string name="btn_admin_reset_device">Reset Arduino</string>
+    <string name="btn_admin_launch_settings">Configuration</string>
+
+    <!-- Strings related to Settings -->
+    <string name="pref_cat_connection_info">Connection info</string>
+    <string name="pref_device_location">Connection details of sunrise device</string>
+    <string name="title_activity_time">TimeActivity</string>
+
+    <!-- TODO: Remove or change this placeholder text -->
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="title_activity_prefs">Prefs</string>
+
+
+</resources>

@@ -258,17 +258,19 @@ class ProgramsAPI(Resource):
 		'''Get currently executing program'''
 		try:
 			app.logger.info('Handling GET request on /programs endpoint')
-			try:
-				app.logger.info(PROGRAM_PROCESS.current_program)
-				current_program = PROGRAM_PROCESS.current_program
-			except Exception as e:
-				app.logger.error('Issue getting current program', exc_info=True)
-				current_program = None
-			return { "currentProgram": current_program }, 200
+				
+			return { "currentProgram": self._fetch_current_program() }, 200
 			
 		except Exception:
 			app.logger.error("Error handling request", exc_info=True)
 			return { "error": "Error handling request." }, 500
+			
+	def _fetch_current_program(self):
+		current_program = None
+		with open(ProgramList.current_program_filename, 'r') as f:
+			current_program = f.read()
+			
+		return current_program
 			
 
 @api.resource('/programs/<program>')
@@ -283,6 +285,7 @@ class ProgramAPI(Resource):
 				
 			# get the dict of url arguments in case they are needed
 			query_dict = request.args.to_dict()
+			arg_dict = {}
 			
 			if program == 'blackout':
 				QUEUE.put_nowait(ProgramTask('blackout'))
@@ -290,27 +293,46 @@ class ProgramAPI(Resource):
 			elif program == 'single_color':
 				try:
 					if 'red' in query_dict:
-						query_dict['red'] = int(query_dict['red'])
-						if query_dict['red'] < 0 or query_dict['red'] > 255:
+						arg_dict['red'] = int(query_dict['red'])
+						if arg_dict['red'] < 0 or arg_dict['red'] > 255:
 							raise ValueError
 						
 					if 'green' in query_dict:
-						query_dict['green'] = int(query_dict['green'])
-						if query_dict['green'] < 0 or query_dict['green'] > 255:
+						arg_dict['green'] = int(query_dict['green'])
+						if arg_dict['green'] < 0 or arg_dict['green'] > 255:
 							raise ValueError
 					
 					if 'blue' in query_dict:
-						query_dict['blue'] = int(query_dict['blue'])
-						if query_dict['blue'] < 0 or query_dict['blue'] > 255:
+						arg_dict['blue'] = int(query_dict['blue'])
+						if arg_dict['blue'] < 0 or arg_dict['blue'] > 255:
 							raise ValueError
 						
 				except (KeyError, ValueError, TypeError):
 					return { "error": "red, green, and blue values must be integers between 0 and 255." }, 400
 					
-				QUEUE.put_nowait(ProgramTask('single_color', query_dict))
+				QUEUE.put_nowait(ProgramTask('single_color', arg_dict))
 				
 			elif program == 'changing_color':
-				QUEUE.put_nowait(ProgramTask('changing_color'))
+				try:
+					if 'dwellTimeMs' in query_dict:
+						arg_dict['dwell_time_ms'] = int(query_dict['dwellTimeMs'])
+						if arg_dict['dwell_time_ms'] < 0:
+							raise ValueError
+						
+					if 'transitionTimeMs' in query_dict:
+						arg_dict['transition_time_ms'] = int(query_dict['transitionTimeMs'])
+						if arg_dict['transition_time_ms'] < 0:
+							raise ValueError
+							
+					if 'brightnessScalePct' in query_dict:
+						arg_dict['brightness_scale_pct'] = int(query_dict['brightnessScalePct'])
+						if arg_dict['brightness_scale_pct'] < 0 or arg_dict['brightness_scale_pct'] > 100 :
+							raise ValueError
+				
+				except (KeyError, ValueError, TypeError):
+					return { "error": "dwellTimeMs and transitionTimeMs values must be positive integers. brightnessScalePct must be between 0 and 100." }, 400
+						
+				QUEUE.put_nowait(ProgramTask('changing_color', arg_dict))
 					
 				
 			elif program == 'wakeup':

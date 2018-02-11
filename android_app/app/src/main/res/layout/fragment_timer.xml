@@ -1,0 +1,45 @@
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".TimerFragment">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="15sp"
+        android:textSize="15sp"
+        android:text="@string/lbl_current_alarms"/>
+
+    <TextView
+        android:id="@+id/tv_alarms_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="15sp"
+        android:textSize="15sp"
+        android:textStyle="italic"
+        android:text="unsynced"/>
+
+    <TableLayout
+        android:id="@+id/lyt_current_alarms"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="15sp" />
+
+    <Button
+        android:id="@+id/btn_read_alarms"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Show Existing Timers"
+        style="?android:attr/borderlessButtonStyle"/>
+
+    <Button
+        android:id="@+id/btn_new_alarm"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Create New Timer"
+        style="?android:attr/borderlessButtonStyle"/>
+
+</LinearLayout>

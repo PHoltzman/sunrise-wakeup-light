@@ -14,3 +14,4 @@ pytz==2017.2
 rpi-ws281x==3.0.3
 six==1.11.0
 Werkzeug==0.12.2
+psutil

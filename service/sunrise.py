@@ -1,4 +1,5 @@
 import sys
+import os
 import logging
 import logging.handlers
 import json
@@ -6,6 +7,8 @@ from datetime import datetime
 import multiprocessing
 import signal
 from time import sleep
+
+import psutil
 
 from dateutil import parser
 from flask import Flask, request
@@ -282,6 +285,8 @@ class ProgramAPI(Resource):
 			app.logger.info('Handling GET request on /programs/{} endpoint'.format(program))
 			if program not in ProgramList.valid_programs:
 				return {"error": "{} is not a recognized program".format(program)}, 404
+			
+			find_and_remove_orphaned_process(app.logger)
 				
 			# get the dict of url arguments in case they are needed
 			query_dict = request.args.to_dict()
@@ -405,7 +410,37 @@ def datetime_to_string(d_time):
 	output_datetime_format = "%Y-%m-%dT%H:%M:%S"
 	s_time = datetime.strftime(d_time, output_datetime_format)
 	
-	return s_time	
+	return s_time
+	
+	
+def find_and_remove_orphaned_process(logger):
+	"""
+	When gunicorn restarts a worker, sometimes the program process owned by that worker doesn't get killed but is
+	instead orphaned. When the new worker starts up, it creates its own program process, causing a conflict.
+	This manifests as a strobing effect on the LEDs when a program other than blackout tries to run.
+	This seems to happen even though the program process is created with daemon=True and I don't understand why.
+	This function searches for an orphaned process from this application and kills it.
+	"""
+	logger.info('Checking for orphaned processes...')
+	my_ppid = os.getppid()
+	logger.info('Current top-level PID = {}'.format(str(my_ppid)))
+	
+	# loop through all processes
+	for p in psutil.process_iter():
+		if p.ppid() == 1:
+			# these might be orphaned pids since they have parent id of 1
+			# first let's make sure it isn't our worker's valid parent
+			# (when launched by systemd, the top level process of this app has parent process of 1 and killing it isn't good)
+			# we are only concerned with the grandchild process getting orphaned
+			
+			if my_ppid != p.pid:
+				#it isn't us so let's check the command line arguments to see if they belong to our app
+				for item in p.cmdline():
+					if 'Sunrise' in item:
+						# it belongs to us so kill it
+						logger.info('Found orphaned process with PID = {}. Terminating...'.format(str(p.pid)))
+						p.kill()
+		
 	
 	
 ########################## INVOCATION #############################	

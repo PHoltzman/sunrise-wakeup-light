@@ -167,7 +167,7 @@ class BaseProgram(multiprocessing.Process):
 		self.logger.info('Exiting Program: {}'.format(self.current_program))		
 		self.quit_blackout()
 
-	def changing_color(self, dwell_time_ms=10000, transition_time_ms=2000, brightness_scale_pct=100):
+	def changing_color(self, dwell_time_ms=10000, transition_time_ms=3000, brightness_scale_pct=100):
 		'''Program that shifts randomly between a list of colors. TODO IN PROGRESS'''	
 		self._set_current_program('changing_color')
 		self.logger.info('Starting Program: {} with dwell_time_ms={} and transition_time_ms={} and brightness_scale_pct={}'.format(self.current_program, str(dwell_time_ms), str(transition_time_ms), str(brightness_scale_pct)))
@@ -176,10 +176,16 @@ class BaseProgram(multiprocessing.Process):
 		raw_program_options = [
 			(255,0,255,100),	# pink
 			(128,0,255,100),	# purple
+			(64,0,255,100),		# bluish purple
 			(255,0,128,100),	# bright pink
+			(255,0,64,100),		# reddish pink
+			(255,64,0,100),		# orange
+			(255,255,0,100),	# yellow
 			(0,255,255,100),	# teal
 			(0,255,128,100),	# green teal
+			(0,255,50,100),		# bluish green
 			(0,128,255,100),	# blue teal
+			(0,64,255,100),		# light blue
 			(255,0,0,100),		# red
 			(0,255,0,100),		# green
 			(0,0,255,100)		# blue

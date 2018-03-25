@@ -59,13 +59,16 @@ QUEUE.put_nowait(ProgramTask('blackout'))
 def signal_handler(signal, frame):
 	app.logger.info('SIGINT received. Cleaning up children processes and exiting...')
 	QUEUE.put_nowait(ProgramTask('KILL'))
-	sleep(2)
-	QUEUE.join(2)
+	app.logger.info('Joining the queue to wait for items to finish processing')
+	QUEUE.join()
+	app.logger.info('Queue successfully joined!...attempting to join child process with timeout of 10 seconds')
 	try:
-		PROGRAM_PROCESS.join(2)
+		PROGRAM_PROCESS.join(10)
+		app.logger.info('Child process sucessfully joined or timed out')
 	except AttributeError:
 		pass
 	
+	app.logger.info('Program exiting.')
 	sys.exit(0)
 		
 signal.signal(signal.SIGINT, signal_handler)
@@ -338,7 +341,18 @@ class ProgramAPI(Resource):
 					return { "error": "dwellTimeMs and transitionTimeMs values must be positive integers. brightnessScalePct must be between 0 and 100." }, 400
 						
 				QUEUE.put_nowait(ProgramTask('changing_color', arg_dict))
-					
+			
+			elif program == 'sleepy_time':
+				try:
+					if 'multiplier' in query_dict:
+						query_dict['multiplier'] = int(query_dict['multiplier'])
+						if query_dict['multiplier'] < 0:
+							raise ValueError
+				
+				except (ValueError, TypeError):
+					return { "error": "if provided, 'multiplier' must be an integer greater than 0" }, 400
+				
+				QUEUE.put_nowait(ProgramTask('sleepy_time', query_dict))
 				
 			elif program == 'wakeup':
 				try:

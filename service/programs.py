@@ -6,7 +6,7 @@ import random
 import rpi_ws281x as rpi
 
 class ProgramList(object):
-	valid_programs = ["wakeup", "wakeup_demo", "single_color", "changing_color", "blackout"]
+	valid_programs = ["wakeup", "wakeup_demo", "single_color", "changing_color", "blackout", "sleepy_time"]
 	current_program_filename = 'current_program.txt'
 
 class ColorObject(object):
@@ -50,9 +50,8 @@ class BaseProgram(multiprocessing.Process):
 		self.strip = rpi.PixelStrip(self.num_pixels, 10)
 		self.strip.begin()
 	
-	def exit_gracefully(self):
+	def _exit_gracefully(self):
 		'''Exit the subprocess when instructed. Should only be called if the whole service is coming down.'''
-		self.quit_blackout()
 		self.strip._cleanup()
 		self._set_current_program("None")
 		
@@ -97,6 +96,7 @@ class BaseProgram(multiprocessing.Process):
 					# Received kill task so exit
 					self.logger.info('Received shutdown command so exiting this process.')
 					self.quit_blackout()
+					self._exit_gracefully()
 					break
 					
 				elif next_task.program == 'blackout':
@@ -107,6 +107,14 @@ class BaseProgram(multiprocessing.Process):
 					
 				elif next_task.program == 'changing_color':
 					self.changing_color(**next_task.arg_dict)
+					
+				elif next_task.program == 'sleepy_time':
+					exited_normally = self.sleepy_time(**next_task.arg_dict)
+					
+					if exited_normally:
+						# if we weren't given a new task that caused us to abandon the program early, then
+						# queue up the blackout program since that is our base resting state
+						self.queue.put_nowait(ProgramTask('blackout'))
 					
 				elif next_task.program == 'wakeup':
 					exited_normally = self.wakeup(**next_task.arg_dict)
@@ -168,7 +176,7 @@ class BaseProgram(multiprocessing.Process):
 		self.quit_blackout()
 
 	def changing_color(self, dwell_time_ms=10000, transition_time_ms=3000, brightness_scale_pct=100):
-		'''Program that shifts randomly between a list of colors. TODO IN PROGRESS'''	
+		'''Program that shifts randomly between a list of colors.'''	
 		self._set_current_program('changing_color')
 		self.logger.info('Starting Program: {} with dwell_time_ms={} and transition_time_ms={} and brightness_scale_pct={}'.format(self.current_program, str(dwell_time_ms), str(transition_time_ms), str(brightness_scale_pct)))
 		
@@ -234,7 +242,30 @@ class BaseProgram(multiprocessing.Process):
 			
 		self.logger.info('Exiting Program: {}'.format(self.current_program))		
 		self.quit_blackout()
+		
+	def sleepy_time(self, multiplier=5):
+		'''Program that slowly goes from light on to dark.
+		
+		Args:
+			(opt) multiplier (int) - sets the total duration of the program. Completion is reached in roughly the number of minutes equal to the multiplier.
+		'''
+		self._set_current_program('sleepy_time')
+		self.logger.info('Starting Program: {} with multiplier={}'.format(self.current_program, str(multiplier)))
+		
+		# r, g, b, led pct, transition time ratio from this to next
+		program_sequence = [
+			(128,0,0,100,1),
+			(0,0,0,100,0)
+		]
+		
+		exited_normally = self._wakeup_core(program_sequence, multiplier, base_multiplier=600)
+				
+		self.logger.info('Exiting Program: {}'.format(self.current_program))
+		self.quit_blackout()
+		
+		return exited_normally
 
+		
 	def wakeup(self, multiplier=30):
 		'''
 		Program that simulates a sunrise sequence increasing in color, brightness, and pixel count throughout.
@@ -245,9 +276,7 @@ class BaseProgram(multiprocessing.Process):
 		self._set_current_program('wakeup')
 		self.logger.info('Starting Program: {} with multiplier={}'.format(self.current_program, str(multiplier)))
 		
-		exited_normally = True
-		
-		# r, g, b, led pct, transition time ratio from this to next,
+		# r, g, b, led pct, transition time ratio from this to next
 		program_sequence = [
 			(0,0,0,10,1),	# black
 			(0,0,10,15,1),	# dark blue
@@ -261,7 +290,15 @@ class BaseProgram(multiprocessing.Process):
 			(255,200,100,100,0)	# white
 		]
 		
-		base_multiplier = 60
+		exited_normally = self._wakeup_core(program_sequence, multiplier)
+				
+		self.logger.info('Exiting Program: {}'.format(self.current_program))
+		self.quit_blackout()
+		
+		return exited_normally
+		
+	def _wakeup_core(self, program_sequence, multiplier, base_multiplier=60):
+		exited_normally = True
 		
 		data = [ColorObject(0,0,0) for x in range(0,self.num_pixels)]
 		for i in range(1, len(program_sequence)):
@@ -277,10 +314,7 @@ class BaseProgram(multiprocessing.Process):
 			if exited_normally == False or self._check_for_task():
 				exited_normally = False
 				break
-		
-		self.logger.info('Exiting Program: {}'.format(self.current_program))
-		self.quit_blackout()
-		
+				
 		return exited_normally
 
 	def _iterate_color_transition(self, from_state, to_state, iter_count, data):

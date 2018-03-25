@@ -152,6 +152,28 @@ public class ProgramsFragment extends MyFragmentTemplate {
             }
         });
 
+        Button btnSleepy = (Button) view.findViewById(R.id.btn_sleepy);
+        btnSleepy.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                View p = (View)v.getParent();
+                TextView mult = (EditText)p.findViewById(R.id.sleepy_1);
+
+                String multiplier = mult.getText().toString().trim();
+
+                JSONObject args = new JSONObject();
+                try {
+                    if (!multiplier.equals("")) {
+                        args.put("multiplier", Integer.parseInt(multiplier));
+                    }
+                } catch (JSONException e) {
+                    new Notifier(getActivity(), "Error parsing input arguments.").show();
+                }
+
+                activateProgram("sleepy_time", args);
+            }
+        });
+
         return view;
     }
 

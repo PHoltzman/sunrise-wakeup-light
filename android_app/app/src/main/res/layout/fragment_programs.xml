@@ -48,26 +48,63 @@
             android:text="Single Color"
             style="?android:attr/borderlessButtonStyle" />
 
-        <EditText
-            android:id="@+id/sc_1"
-            android:ems="3"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:inputType="number"/>
+            android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/sc_2"
-            android:ems="3"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:inputType="number"/>
+            <EditText
+                android:id="@+id/sc_1"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
 
-        <EditText
-            android:id="@+id/sc_3"
-            android:ems="3"
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:textAlignment="center"
+                android:text="Red"/>
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:inputType="number"/>
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/sc_2"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:textAlignment="center"
+                android:text="Green"/>
+        </LinearLayout>
+
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/sc_3"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:textAlignment="center"
+                android:text="Blue"/>
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -83,26 +120,62 @@
             android:text="Changing Color"
             style="?android:attr/borderlessButtonStyle" />
 
-        <EditText
-            android:id="@+id/cc_1"
-            android:ems="3"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:inputType="number"/>
+            android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/cc_2"
-            android:ems="3"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:inputType="number"/>
+            <EditText
+                android:id="@+id/cc_1"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
 
-        <EditText
-            android:id="@+id/cc_3"
-            android:ems="3"
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="35dp"
+                android:textAlignment="center"
+                android:text="Dwell (ms)"/>
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:inputType="number"/>
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/cc_2"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:textAlignment="center"
+                android:text="Trans (ms)"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/cc_3"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAlignment="center"
+                android:text="Bright %"/>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
@@ -117,12 +190,55 @@
             android:text="Wakeup"
             style="?android:attr/borderlessButtonStyle" />
 
-        <EditText
-            android:id="@+id/wakeup_1"
-            android:ems="3"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:inputType="number"/>
+            android:orientation="vertical">
 
+            <EditText
+                android:id="@+id/wakeup_1"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAlignment="center"
+                android:text="Mult"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_sleepy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Sleepy Time"
+            style="?android:attr/borderlessButtonStyle" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/sleepy_1"
+                android:ems="3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:inputType="number"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAlignment="center"
+                android:text="Mult"/>
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

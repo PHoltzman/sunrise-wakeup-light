@@ -32,14 +32,14 @@
         android:id="@+id/btn_read_alarms"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Show Existing Timers"
+        android:text="Show Existing Alarms"
         style="?android:attr/borderlessButtonStyle"/>
 
     <Button
         android:id="@+id/btn_new_alarm"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Create New Timer"
+        android:text="Create New Alarm"
         style="?android:attr/borderlessButtonStyle"/>
 
 </LinearLayout>

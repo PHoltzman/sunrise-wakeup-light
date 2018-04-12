@@ -32,6 +32,7 @@
         <item>wakeup_demo</item>
         <item>single_color</item>
         <item>changing_color</item>
+        <item>sleepy_time</item>
     </string-array>
 
     <!-- Strings for admin activity -->
